@@ -129,6 +129,9 @@ impl Vector3 {
     fn unit_vector(&self) -> Vector3 {
         self.div(self.length())
     }
+    fn dot(&self, vec: Vector3) -> f32 {
+        self.x * vec.x + self.y * vec.y + self.z * vec.z
+    }
 }
 
 struct Ray {
@@ -137,9 +140,21 @@ struct Ray {
 }
 
 fn ray_color(r: Ray) -> Color {
+    if hit_sphere(Vector3{x: 0., y: 0., z: -1.}, 0.5, &r) {
+        return Color{x: 1., y: 0., z: 0.}
+    }
     let unit_direction = Vector3::unit_vector(&r.direction);
     let t: f32 = 0.5 * (unit_direction.y + 1.0);
     Color{x:1.0, y: 1.0, z: 1.0}.multiply(1.0 - t).add(&Color{x: 0.5, y: 0.7, z: 1.0}.multiply(t))
+}
+
+fn hit_sphere(center: Vector3, radius: f32, r: &Ray) -> bool {
+    let oc: Vector3 = r.origin.sub(&center);
+    let a: f32 = r.direction.dot(r.direction);
+    let b: f32 = 2.0 * oc.dot(r.direction);
+    let c: f32 = oc.dot(oc) - radius * radius;
+    let discriminant = b * b - 4. * a * c;
+    return discriminant > 0.;
 }
 
 fn main() {
