@@ -27,6 +27,9 @@ const length = vec => Math.sqrt(lengthSquared(vec))
 const unitVector = vec => div(vec, length(vec))
 const at = (r, t) => add(r.origin, mul(r.direction, (t)))
 
+const mulV2 = (vec1, vec2) => vec1.map((val, index) => val * vec2[index])
+
+
 const clamp = (x, min, max) => {
   if (x < min) return min
   if (x > max) return max
@@ -36,21 +39,67 @@ const clamp = (x, min, max) => {
 const drawPixel = (pixelColor, ctx, x, y) => {
   pixelColor = div(pixelColor, SAMPLE_PER_PIXEL)
   pixelColor = pixelColor.map(val => Math.sqrt(val))
-  ctx.fillStyle = `rgb(${clamp(pixelColor[0], 0.0, 0.999) * 256}, ${clamp(pixelColor[1], 0.0, 0.999) * 256}, ${clamp(pixelColor[2], 0.0, 0.999) * 256})`
+  if (isNaN(pixelColor[0])) {
+    ctx.fillStyle = `rgb(${clamp(1, 0.0, 0.999) * 256}, ${clamp(0, 0.0, 0.999) * 256}, ${clamp(0, 0.0, 0.999) * 256})`
+  } else {
+    ctx.fillStyle = `rgb(${clamp(pixelColor[0], 0.0, 0.999) * 256}, ${clamp(pixelColor[1], 0.0, 0.999) * 256}, ${clamp(pixelColor[2], 0.0, 0.999) * 256})`
+
+  }
   ctx.fillRect(x, y, 1, 1)
 }
+
+const scatterLambertian = (r, rec, mat) => {
+  let scatterDirection = add(rec.normal, randomInUnitVector())
+  let scattered = {origin: rec.p, direction: scatterDirection}
+  let attenuation = mat.albedo
+  return [true, scattered, attenuation]
+}
+
+const scatterMetal = (r, rec, mat) => {
+  let reflected = reflect(unitVector(r.direction), rec.normal)
+  let scattered = {origin: rec.p, direction: reflected}
+  let attenuation = mat.albedo
+  return [dot(scattered.direction, rec.normal) > 0, scattered, attenuation]
+}
+
+const reflect = (v, n) => sub(v, mul(n, 2 * dot(v, n)))
 
 const rayColor = (r, world, depth) => {
   let rec = new HitRecord()
   if (depth < 0) return [0, 0, 0]
   let [hit, returnedRecord] = world.hit(r, 0.001, Infinity, rec)
+
   if (hit) {
-    let target = add(add(returnedRecord.p, returnedRecord.normal), randomInUnitVector())
-    r.origin = returnedRecord.p
-    r.direction = sub(target, returnedRecord.p)
-    return mul(rayColor(r, world, depth - 1), 0.5)
-    // let color = [returnedRecord.normal[0] + 1, returnedRecord.normal[1] + 1, returnedRecord.normal[2] + 1]
-    // return mul(color, 0.5)
+    // let scattered// = {origin: [0, 0, 0], direction: [0, 0, 0]}
+    // let attenuation //= [0, 0, 0]
+
+    if (returnedRecord.mat.type === 'lambertian') {
+      let [scat, scatteredReturn, attenuationReturn] = scatterLambertian(r, returnedRecord, returnedRecord.mat)
+      if (scat) {
+        let col = rayColor(scatteredReturn, world, depth - 1)
+
+        return mulV2(col, attenuationReturn)
+      }
+      return [0, 0, 0]
+    }
+    if (returnedRecord.mat.type === 'metal') {
+      let [scat, scatteredReturn, attenuationReturn] = scatterMetal(r, returnedRecord, returnedRecord.mat)
+
+      if (scat) {
+        let col = rayColor(scatteredReturn, world, depth - 1)
+        return mulV2(col, attenuationReturn)
+      }
+      return [0, 0, 0]
+    }
+
+
+
+
+    // let target = add(add(returnedRecord.p, returnedRecord.normal), randomInUnitVector())
+    // r.origin = returnedRecord.p
+    // r.direction = sub(target, returnedRecord.p)
+    // return mul(rayColor(r, world, depth - 1), 0.5)
+
   }
   let unitDirection = unitVector(r.direction) // this.direction.unitVector()
   let t = 0.5 * unitDirection[1] + 1.0
@@ -62,10 +111,6 @@ const randomInUnitVector = () => {
   let z = - 1 + 2 * Math.random()
   let r = Math.sqrt(1 - z * z)
   return [Math.cos(a) * r, Math.sin(a) * r, z]
-  // while (true) {
-  //   let p = [- 1 + 2 * Math.random(), - 1 + 2 * Math.random(), - 1 + 2 * Math.random()]
-  //   if (lengthSquared(p) < 1) return p
-  // }
 }
 
 class Camera {
@@ -93,6 +138,7 @@ class HitRecord {
     this.normal = [0, 0, 0] // new Vec3(0, 0, 0)
     this.t = 0
     this.frontFace = false
+    this.mat = {albedo: [0, 0, 0], type:'lambertian'}
   }
 
   setFaceNormal = (r, outwardNormal) => {
@@ -102,9 +148,10 @@ class HitRecord {
 }
 
 class Sphere {
-  constructor(center, radius) {
+  constructor(center, radius, material) {
     this.center = center
     this.radius = radius
+    this.material = material
   }
 
   hit = (r, tMin, tMax, rec) => {
@@ -122,6 +169,7 @@ class Sphere {
         rec.p = at(r, rec.t)
         let outwardNormal = div(sub(rec.p, this.center), this.radius) // (rec.p.sub(this.center).div(this.radius))
         rec.setFaceNormal(r, outwardNormal)
+        rec.mat = this.material
         return true
       }
       temp = (- halfB + root) / a
@@ -130,6 +178,7 @@ class Sphere {
         rec.p = at(r, rec.t)
         let outwardNormal = div(sub(rec.p, this.center), this.radius)
         rec.setFaceNormal(r, outwardNormal)
+        rec.mat = this.material
         return true
       }
     }
@@ -165,12 +214,14 @@ const render = (ctx, canvas) => {
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   let camera = new Camera()
   let world = new HittableList()
-  world.add(new Sphere([0, 0, -1], 0.5))
-  world.add(new Sphere([0, - 100.5, - 1], 100))
+  world.add(new Sphere([0, - 100.5, - 1], 100, {albedo: [0.8, 0.8, 0.0], type:'lambertian'}))
+  world.add(new Sphere([0, 0, -1], 0.5, {albedo: [0.7, 0.3, 0.3], type:'lambertian'}))
+  world.add(new Sphere([-1, 0, -1], 0.5, {albedo: [0.8, 0.8, 0.8], type:'metal'}))
+  world.add(new Sphere([1, 0, -1], 0.5, {albedo: [0.8, 0.6, 0.2], type:'metal'}))
 
   for (let j = IMAGE_HEIGHT - 1; j >= 0; j--) {
     for (let i = 0; i < IMAGE_WIDTH; i++) {
-      let pixelColor = [0, 0, 0] // new Color(0, 0, 0)
+      let pixelColor = [0, 0, 0]
       for (let s = 0; s < SAMPLE_PER_PIXEL; s++) {
         let u = (i + Math.random()) / (IMAGE_WIDTH - 1)
         let v = (j + Math.random()) / (IMAGE_HEIGHT - 1)
