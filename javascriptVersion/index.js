@@ -8,14 +8,15 @@ ctx.font = '15px serif'
 const DRAWING_OFFSET_X = 50
 const DRAWING_OFFSET_Y = 50
 
-const SAMPLE_PER_PIXEL = 1
+const SAMPLE_PER_PIXEL = 100
+const MAX_DEPTH = 50
+
 const IMAGE_WIDTH = 400
 const ASPECT_RATIO = 16.0 / 9.0
 const IMAGE_HEIGHT = Math.floor(IMAGE_WIDTH / ASPECT_RATIO)
 
 
-// Vector [x, y, z]
-
+// Vector = [x, y, z]
 const add = (vec1, vec2) => vec1.map((val, index) => val + vec2[index])
 const sub = (vec1, vec2) => vec1.map((val, index) => val - vec2[index])
 const mul = (vec1, value) => vec1.map((val, index) => val * value)
@@ -24,6 +25,48 @@ const dot = (vec1, vec2) => vec1.reduce((acc, val, index) => acc + val * vec2[in
 const lengthSquared = vec => vec.reduce((acc, val) => acc + val * val, 0)
 const length = vec => Math.sqrt(lengthSquared(vec))
 const unitVector = vec => div(vec, length(vec))
+const at = (r, t) => add(r.origin, mul(r.direction, (t)))
+
+const clamp = (x, min, max) => {
+  if (x < min) return min
+  if (x > max) return max
+  return x
+}
+
+const drawPixel = (pixelColor, ctx, x, y) => {
+  pixelColor = div(pixelColor, SAMPLE_PER_PIXEL)
+  pixelColor = pixelColor.map(val => Math.sqrt(val))
+  ctx.fillStyle = `rgb(${clamp(pixelColor[0], 0.0, 0.999) * 256}, ${clamp(pixelColor[1], 0.0, 0.999) * 256}, ${clamp(pixelColor[2], 0.0, 0.999) * 256})`
+  ctx.fillRect(x, y, 1, 1)
+}
+
+const rayColor = (r, world, depth) => {
+  let rec = new HitRecord()
+  if (depth < 0) return [0, 0, 0]
+  let [hit, returnedRecord] = world.hit(r, 0.001, Infinity, rec)
+  if (hit) {
+    let target = add(add(returnedRecord.p, returnedRecord.normal), randomInUnitVector())
+    r.origin = returnedRecord.p
+    r.direction = sub(target, returnedRecord.p)
+    return mul(rayColor(r, world, depth - 1), 0.5)
+    // let color = [returnedRecord.normal[0] + 1, returnedRecord.normal[1] + 1, returnedRecord.normal[2] + 1]
+    // return mul(color, 0.5)
+  }
+  let unitDirection = unitVector(r.direction) // this.direction.unitVector()
+  let t = 0.5 * unitDirection[1] + 1.0
+  return add(mul([1, 1, 1], (1.0 - t)), mul([0.5, 0.7, 1.0], t))
+}
+
+const randomInUnitVector = () => {
+  let a = Math.random() * 2 * Math.PI
+  let z = - 1 + 2 * Math.random()
+  let r = Math.sqrt(1 - z * z)
+  return [Math.cos(a) * r, Math.sin(a) * r, z]
+  // while (true) {
+  //   let p = [- 1 + 2 * Math.random(), - 1 + 2 * Math.random(), - 1 + 2 * Math.random()]
+  //   if (lengthSquared(p) < 1) return p
+  // }
+}
 
 class Camera {
   constructor() {
@@ -42,54 +85,6 @@ class Camera {
     console.log(div(this.horizontal, 2))
   }
   getRay = (u, v) => ({origin: this.origin, direction: sub(add(add(this.lowerLeftCorner, mul(this.horizontal, u)), mul(this.vertical, v)), this.origin)})
-}
-
-
-
-const clamp = (x, min, max) => {
-  if (x < min) return min
-  if (x > max) return max
-  return x
-}
-
-const drawPixel = (pixelColor, ctx, x, y) => {
-  div(pixelColor, SAMPLE_PER_PIXEL)
-  ctx.fillStyle = `rgb(${clamp(pixelColor[0], 0.0, 0.999) * 256}, ${clamp(pixelColor[1], 0.0, 0.999) * 256}, ${clamp(pixelColor[2], 0.0, 0.999) * 256})`
-  ctx.fillRect(x, y, 1, 1)
-}
-
-const rayColor = (r, world) => {
-  // let t = hitSphere([0,0,-1], 0.5, r)
-  // if (t > 0) {
-  //   let n = unitVector(sub(at(r, t), [0,0,-1]))
-  //   return mul([n[0] + 1, n[1] + 1, n[2] + 1,], 0.5)
-  // }
-  // let unitDirection = unitVector(r.direction)
-  // t = 0.5 * unitDirection[1] + 1.0
-  // return add(mul([1, 1, 1], (1.0 - t)), mul([0.5, 0.7, 1.0], t))
-
-
-  let rec = new HitRecord()
-  let [hit, returnedRecord] = world.hit(r, 0, Infinity, rec)
-  if (hit) {
-    let color = [returnedRecord.normal[0] + 1, returnedRecord.normal[1] + 1, returnedRecord.normal[2] + 1]
-    return mul(color, 0.5)
-    // return add(color, mul([1, 1, 1], 0.5))
-  }
-  let unitDirection = unitVector(r.direction) // this.direction.unitVector()
-  let t = 0.5 * unitDirection[1] + 1.0
-  return add(mul([1, 1, 1], (1.0 - t)), mul([0.5, 0.7, 1.0], t))
-}
-
-const at = (r, t) => add(r.origin, mul(r.direction, (t)))
-
-const hitSphere = (center, radius, r) => {
-  let oc = sub(r.origin, center)
-  let a = lengthSquared(r.direction)
-  let halfB = dot(oc, r.direction)
-  let c = lengthSquared(oc) - radius * radius
-  let discriminant = halfB * halfB - a * c
-  return discriminant < 0 ? - 1.0 : (- halfB - Math.sqrt(discriminant)) / a
 }
 
 class HitRecord {
@@ -127,18 +122,18 @@ class Sphere {
         rec.p = at(r, rec.t)
         let outwardNormal = div(sub(rec.p, this.center), this.radius) // (rec.p.sub(this.center).div(this.radius))
         rec.setFaceNormal(r, outwardNormal)
-        return [true, rec]
+        return true
       }
-      temp = (-halfB + root) / a
+      temp = (- halfB + root) / a
       if (temp < tMax && temp > tMin) {
         rec.t = temp
         rec.p = at(r, rec.t)
         let outwardNormal = div(sub(rec.p, this.center), this.radius)
         rec.setFaceNormal(r, outwardNormal)
-        return [true, rec]
+        return true
       }
     }
-    return [false, rec]
+    return false
   }
 }
 
@@ -151,19 +146,17 @@ class HittableList {
   add = object => this.objects.push(object)
 
   hit = (r, tMin, tMax, rec) => {
-    // rayon, record vide au debut
     let tempRec = new HitRecord()
     let hitAnything = false
     let closestSoFar = tMax
     this.objects.forEach(object => {
-      let [hitten, returnedRecord] = object.hit(r, tMin, closestSoFar, tempRec)
+      let hitten = object.hit(r, tMin, closestSoFar, tempRec)
       if (hitten) {
         hitAnything = true
-        closestSoFar = returnedRecord.t
-        rec = returnedRecord
+        closestSoFar = tempRec.t
+        rec = tempRec
       }
     })
-
     return [hitAnything, rec]
   }
 }
@@ -182,7 +175,7 @@ const render = (ctx, canvas) => {
         let u = (i + Math.random()) / (IMAGE_WIDTH - 1)
         let v = (j + Math.random()) / (IMAGE_HEIGHT - 1)
         let r = camera.getRay(u, v)
-        pixelColor = add(pixelColor, rayColor(r, world))
+        pixelColor = add(pixelColor, rayColor(r, world, MAX_DEPTH))
       }
       drawPixel(pixelColor, ctx, DRAWING_OFFSET_X + i, (DRAWING_OFFSET_Y  + IMAGE_HEIGHT) - j)
     }
