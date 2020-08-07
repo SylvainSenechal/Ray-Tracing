@@ -8,7 +8,7 @@ ctx.font = '15px serif'
 const DRAWING_OFFSET_X = 50
 const DRAWING_OFFSET_Y = 50
 
-const SAMPLE_PER_PIXEL = 500
+const SAMPLE_PER_PIXEL = 1
 const MAX_DEPTH = 50
 
 const IMAGE_WIDTH = 400
@@ -16,8 +16,7 @@ const ASPECT_RATIO = 3.0 / 2.0
 const IMAGE_HEIGHT = Math.floor(IMAGE_WIDTH / ASPECT_RATIO)
 
 
-// Vector = [x, y, z]
-
+// Vector = Color = [x, y, z]
 // Classic version : 4~5 times faster than ES6 version
 const add = (vec1, vec2) => [vec1[0] + vec2[0], vec1[1] + vec2[1], vec1[2] + vec2[2]]
 const sub = (vec1, vec2) => [vec1[0] - vec2[0], vec1[1] - vec2[1], vec1[2] - vec2[2]]
@@ -43,11 +42,9 @@ const cross = (vec1, vec2) => [
 
 const length = vec => Math.sqrt(lengthSquared(vec))
 const unitVector = vec => div(vec, length(vec))
-
-
-
 const at = (r, t) => add(r.origin, mul(r.direction, (t)))
 const clamp = (x, min, max) => x < min ? min : x > max ? max : x
+
 const reflect = (v, n) => sub(v, mul(n, 2 * dot(v, n)))
 const refract = (uv, n, etaiOverEtat) => {
   let cosTheta = dot(mul(uv, - 1), n)
@@ -55,6 +52,7 @@ const refract = (uv, n, etaiOverEtat) => {
   let rOutParallel = mul(n, - Math.sqrt(Math.abs(1.0 - lengthSquared(rOutPerp))))
   return add(rOutPerp, rOutParallel)
 }
+
 const schlick = (cosine, refIdx) => {
   let r0 = (1 - refIdx) / (1 + refIdx)
   r0 = r0 * r0
@@ -110,7 +108,13 @@ const scatterDielectric = (r, rec, mat) => {
 let nbTotalRay = 0
 const rayColor = (r, world, depth) => {
   nbTotalRay++
-  let rec = new HitRecord()
+  let rec = {
+    t: 0,
+    p: [0, 0, 0],
+    mat: undefined,
+    frontFace: false,
+    normal: [0, 0, 0]
+  }
   if (depth < 0) return [0, 0, 0]
   let [hit, returnedRecord] = world.hit(r, 0.001, Infinity, rec)
 
@@ -118,8 +122,7 @@ const rayColor = (r, world, depth) => {
     if (returnedRecord.mat.type === 'lambertian') {
       let [scat, scatteredReturn, attenuationReturn] = scatterLambertian(r, returnedRecord, returnedRecord.mat)
       if (scat) {
-        let col = rayColor(scatteredReturn, world, depth - 1)
-        return mulVecVec(col, attenuationReturn)
+        return mulVecVec(rayColor(scatteredReturn, world, depth - 1), attenuationReturn)
       }
       return [0, 0, 0]
     }
@@ -127,8 +130,7 @@ const rayColor = (r, world, depth) => {
       let [scat, scatteredReturn, attenuationReturn] = scatterMetal(r, returnedRecord, returnedRecord.mat)
 
       if (scat) {
-        let col = rayColor(scatteredReturn, world, depth - 1)
-        return mulVecVec(col, attenuationReturn)
+        return mulVecVec(rayColor(scatteredReturn, world, depth - 1), attenuationReturn)
       }
       return [0, 0, 0]
     }
@@ -136,22 +138,12 @@ const rayColor = (r, world, depth) => {
       let [scat, scatteredReturn, attenuationReturn] = scatterDielectric(r, returnedRecord, returnedRecord.mat)
 
       if (scat) {
-        let col = rayColor(scatteredReturn, world, depth - 1)
-        return mulVecVec(col, attenuationReturn)
+        return mulVecVec(rayColor(scatteredReturn, world, depth - 1), attenuationReturn)
       }
       return [0, 0, 0]
     }
-
-
-
-
-    // let target = add(add(returnedRecord.p, returnedRecord.normal), randomInUnitVector())
-    // r.origin = returnedRecord.p
-    // r.direction = sub(target, returnedRecord.p)
-    // return mul(rayColor(r, world, depth - 1), 0.5)
-
   }
-  let unitDirection = unitVector(r.direction) // this.direction.unitVector()
+  let unitDirection = unitVector(r.direction)
   let t = 0.5 * unitDirection[1] + 1.0
   return add(mul([1, 1, 1], (1.0 - t)), mul([0.5, 0.7, 1.0], t))
 }
@@ -189,25 +181,11 @@ class Camera {
     this.u = unitVector(cross(vup, this.w))
     this.v = cross(this.w, this.u)
 
-    // this.aspectRatio = 16.0 / 9.0
-    // this.viewportHeight = 2.0
-    // this.viewportWidth = this.aspectRatio * this.viewportHeight
-    // this.focalLength = 1.0
-
-    this.origin = lookFrom // [0, 0, 0] // new Vec3(0, 0, 0)
-    this.horizontal = mul(this.u, focusDist * viewportWidth) // [viewportWidth, 0, 0] // new Vec3(this.viewportWidth, 0, 0)
-    this.vertical = mul(this.v, focusDist * viewportHeight) // [0, viewportHeight, 0] // new Vec3(0.0, this.viewportHeight, 0.0)
-    // this.lowerLeftCorner = sub(sub(sub(this.origin, div(this.horizontal, 2)), div(this.vertical, 2)), [0, 0, focalLength])
+    this.origin = lookFrom
+    this.horizontal = mul(this.u, focusDist * viewportWidth)
+    this.vertical = mul(this.v, focusDist * viewportHeight)
     this.lowerLeftCorner = sub(sub(sub(this.origin, div(this.horizontal, 2)), div(this.vertical, 2)), mul(this.w, focusDist))
     this.lensRadius = aperture / 2
-    console.log('ok')
-    console.log(focusDist)
-    console.log(this.origin)
-    console.log(this.horizontal)
-    console.log(this.vertical)
-    console.log(this.lowerLeftCorner)
-    console.log(this.lensRadius)
-    console.log('oui')
   }
   // getRay = (u, v) => ({origin: this.origin, direction: sub(add(add(this.lowerLeftCorner, mul(this.horizontal, u)), mul(this.vertical, v)), this.origin)})
   // getRay = (u, v) => ({origin: this.origin, direction: sub(add(add(this.lowerLeftCorner, mul(this.horizontal, u)), mul(this.vertical, v)), this.origin)})
@@ -215,21 +193,6 @@ class Camera {
     let rd = mul(randomInUnitDisk(), this.lensRadius)
     let offset = add(mul(this.u, rd[0]), mul(this.v, rd[1]))
     return {origin: add(this.origin, offset), direction: sub(sub(add(add(this.lowerLeftCorner, mul(this.horizontal, u)), mul(this.vertical, v)), this.origin), offset)}
-  }
-}
-
-class HitRecord {
-  constructor() {
-    this.p = [0, 0, 0] // new Vec3(0, 0, 0)
-    this.normal = [0, 0, 0] // new Vec3(0, 0, 0)
-    this.t = 0
-    this.frontFace = false
-    this.mat = {albedo: [0, 0, 0], type:'lambertian'}
-  }
-
-  setFaceNormal = (r, outwardNormal) => {
-    this.frontFace = dot(r.direction, outwardNormal) < 0
-    this.normal = this.frontFace ? outwardNormal : mul(outwardNormal, - 1)
   }
 }
 
@@ -253,8 +216,10 @@ class Sphere {
       if (temp < tMax && temp > tMin) {
         rec.t = temp
         rec.p = at(r, rec.t)
-        let outwardNormal = div(sub(rec.p, this.center), this.radius) // (rec.p.sub(this.center).div(this.radius))
-        rec.setFaceNormal(r, outwardNormal)
+        let outwardNormal = div(sub(rec.p, this.center), this.radius)
+        let {frontFace, normal} = setFaceNormal(r, outwardNormal)
+        rec.frontFace = frontFace
+        rec.normal = normal
         rec.mat = this.material
         return true
       }
@@ -263,7 +228,9 @@ class Sphere {
         rec.t = temp
         rec.p = at(r, rec.t)
         let outwardNormal = div(sub(rec.p, this.center), this.radius)
-        rec.setFaceNormal(r, outwardNormal)
+        let {frontFace, normal} = setFaceNormal(r, outwardNormal)
+        rec.frontFace = frontFace
+        rec.normal = normal
         rec.mat = this.material
         return true
       }
@@ -272,16 +239,27 @@ class Sphere {
   }
 }
 
-class HittableList {
+const setFaceNormal = (r, outwardNormal) => {
+  let frontFace = dot(r.direction, outwardNormal) < 0
+  let normal = frontFace ? outwardNormal : mul(outwardNormal, - 1)
+  return {frontFace, normal}
+}
+
+class World {
   constructor() {
     this.objects = []
   }
 
-  clear = () => this.objects = []
   add = object => this.objects.push(object)
 
   hit = (r, tMin, tMax, rec) => {
-    let tempRec = new HitRecord()
+    let tempRec = {
+      t: 0,
+      p: [0, 0, 0],
+      mat: undefined,
+      frontFace: false,
+      normal: [0, 0, 0]
+    }
     let hitAnything = false
     let closestSoFar = tMax
     this.objects.forEach(object => {
@@ -297,7 +275,7 @@ class HittableList {
 }
 
 const randomScene = () => {
-  let world = new HittableList()
+  let world = new World()
   let groundMaterial = {type: 'lambertian', albedo: [0.5, 0.5, 0.5]}
   world.add(new Sphere([0, - 1000, 0], 1000, groundMaterial))
 
@@ -347,7 +325,7 @@ const render = (ctx, canvas) => {
   // let aperture = 2.0
   // let camera = new Camera(lookFrom, lookAt, vup, 20, ASPECT_RATIO, aperture, distToFocus)
 
-  // let world = new HittableList()
+  // let world = new World()
   // world.add(new Sphere([0, - 100.5, - 1], 100, {albedo: [0.8, 0.8, 0.0], type:'lambertian'}))
   // world.add(new Sphere([0, 0, -1], 0.5, {albedo: [0.7, 0.3, 0.3], type:'lambertian'}))
   // world.add(new Sphere([-1, 0, -1], 0.5, {albedo: [0.8, 0.8, 0.8], type:'metal', fuzz: 0.3}))
