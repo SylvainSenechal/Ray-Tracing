@@ -1,4 +1,5 @@
 use rand::Rng;
+use std::time::SystemTime;
 
 
 // #[derive(Debug, Copy, Clone)]
@@ -38,6 +39,14 @@ impl Vec3 {
         self.x * vec.x + self.y * vec.y + self.z * vec.z
     }
 
+    fn cross(&self, vec: Vec3) -> Vec3 {
+        Vec3{
+            x: self.y * vec.z - self.z * vec.y,
+            y: self.z * vec.x - self.x * vec.z,
+            z: self.x * vec.y - self.y * vec.x,
+        }
+    }
+
     fn write_color(mut self, sample_per_pixel: i32) {
         self /= sample_per_pixel as f32;
         let ir = (256.0 * clamp(self.x.sqrt(), 0.0, 0.999)) as i32;
@@ -68,10 +77,28 @@ impl Vec3 {
         let r: f32 = (1.0 - z *z).sqrt();
         Vec3{x: r * a.cos(), y: r * a.sin(), z: z}
     }
-
+    fn random_in_unit_disk() -> Vec3 {
+        loop {
+            let p = Vec3{
+                x: - 1.0 + 2.0 * rand::random::<f32>(),
+                y: - 1.0 + 2.0 * rand::random::<f32>(),
+                z: 0.0,
+            };
+            if p.length() < 1.0 {
+                return p
+            }
+        }
+    }
     fn reflect(v: Vec3, n: Vec3) -> Vec3 {
         v - n * 2.0 * v.dot(n)
         // v - (n * 2.0) * v.dot(n)
+    }
+
+    fn refract(uv: Vec3, n: Vec3, etai_over_etat: f32) -> Vec3 {
+        let cos_theta = (- uv).dot(n);
+        let r_out_perp = (uv + n * cos_theta) * etai_over_etat;
+        let r_out_parallel = n * (- (1.0 - r_out_perp.length_squared()).abs().sqrt());
+        r_out_perp + r_out_parallel
     }
 }
 
@@ -83,6 +110,12 @@ fn clamp(val: f32, min: f32, max: f32) -> f32 {
         return max
     }
     val
+}
+
+fn schlick(cosine: f32, ref_idx: f32) -> f32 {
+    let mut r0 = (1.0 - ref_idx) / (1.0 + ref_idx);
+    r0 = r0 * r0;
+    r0 + (1.0 - r0) * (1.0 - cosine).powf(5.0)
 }
 
 impl std::ops::Add for Vec3 {
@@ -127,7 +160,7 @@ impl std::ops::Neg for Vec3 {
     }
 }
 
-// todo : implement sur ray
+// todo : implement sur ray ?
 fn ray_color(r: &Ray, world: &World, depth: i32, nb_ray: &mut i32) -> Vec3 {
     *nb_ray += 1;
     if depth <= 0 {
@@ -135,8 +168,6 @@ fn ray_color(r: &Ray, world: &World, depth: i32, nb_ray: &mut i32) -> Vec3 {
     }
 
     if let Some(ray_hitten) = world.hit(r, 0.001, 1000000.0) {
-        // let target = ray_hitten.p + ray_hitten.normal + Vec3::random_unit_vector();
-        // return ray_color(&Ray{origin: ray_hitten.p, direction: target - ray_hitten.p}, world, depth - 1, nb_ray) * 0.5
         if let Some((scattered, attenuation)) = ray_hitten.material.scatter(r, &ray_hitten) {
             return ray_color(&scattered, world, depth - 1, nb_ray) * attenuation
         }
@@ -241,39 +272,54 @@ struct Camera {
     origin: Vec3,
     lower_left_corner: Vec3,
     horizontal: Vec3,
-    vertical: Vec3
+    vertical: Vec3,
+    u: Vec3,
+    v: Vec3,
+    lens_radius: f32
 }
 
 impl Camera {
-    fn new(aspect_ratio: f32) -> Camera {
-        let viewport_height = 2.0;
+    fn new(lookfrom: Vec3, lookat: Vec3, vup: Vec3, vfov: f32, aspect_ratio: f32, aperture: f32, focus_dist: f32) -> Camera {
+        let theta = vfov * std::f32::consts::PI / 180.0;
+        let h = (theta / 2.0).tan();
+        let viewport_height = 2.0 * h;
         let viewport_width = aspect_ratio * viewport_height;
-        let focal_length = 1.0;
 
-        let origin = Vec3{x: 0.0, y: 0.0, z: 0.0};
-        let horizontal = Vec3{x: viewport_width, y: 0.0, z: 0.0};
-        let vertical = Vec3{x: 0.0, y: viewport_height, z: 0.0};
-        let lower_left_corner = origin - horizontal / 2.0 - vertical / 2.0 - Vec3{x: 0.0, y: 0.0, z: focal_length};
+        let w = (lookfrom - lookat).unit_vector();
+        let u = vup.cross(w).unit_vector();
+        let v = w.cross(u);
+
+        let origin = lookfrom;
+        let horizontal = u * viewport_width * focus_dist;
+        let vertical = v * viewport_height * focus_dist;
+        let lower_left_corner = origin - horizontal / 2.0 - vertical / 2.0 - w * focus_dist;
+        let lens_radius = aperture / 2.0;
         Camera {
             origin: origin,
             horizontal: horizontal,
             vertical: vertical,
             lower_left_corner: lower_left_corner,
+            u: u,
+            v: v,
+            lens_radius: lens_radius
         }
     }
 
     fn get_ray(&self, u: f32, v: f32) -> Ray {
-        Ray{
-           origin: self.origin,
-           direction: self.lower_left_corner + self.horizontal * u + self.vertical * v - self.origin
-       }
+       let rd = Vec3::random_in_unit_disk() * self.lens_radius;
+       let offset = self.u * rd.x + self.v * rd.y;
+       Ray{
+          origin: self.origin + offset,
+          direction: self.lower_left_corner + self.horizontal * u + self.vertical * v - self.origin - offset
+      }
     }
 }
 
 #[derive(Debug, Copy, Clone)]
 enum Material {
     Lambertian {albedo: Vec3},
-    Metal {albedo: Vec3}
+    Metal {albedo: Vec3, fuzz: f32},
+    Dielectric {ref_idx: f32}
 }
 
 impl Material {
@@ -284,62 +330,137 @@ impl Material {
                 let scattered = Ray{origin: rec.p, direction: scatter_direction};
                 Some((scattered, *albedo))
             }
-            Material::Metal {albedo} => {
+            Material::Metal {albedo, fuzz} => {
                 let reflected = Vec3::reflect(r.direction.unit_vector(), rec.normal);
-                let scattered = Ray{origin: rec.p, direction: reflected};
+                let scattered = Ray{origin: rec.p, direction: reflected + Vec3::random_in_unit_sphere() * *fuzz};
                 if scattered.direction.dot(rec.normal) > 0.0 {
                     Some((scattered, *albedo))
                 } else {
                     None
                 }
             }
+            Material::Dielectric {ref_idx} => {
+                let etai_over_etat = if rec.front_face {1.0 / *ref_idx} else {*ref_idx};
+                let unit_direction = r.direction.unit_vector();
+
+                let cos_theta = (- unit_direction).dot(rec.normal).min(1.0);
+                let sin_theta = (1.0 - cos_theta * cos_theta).sqrt();
+
+                if etai_over_etat * sin_theta > 1.0 {
+                    let reflected = Vec3::reflect(unit_direction, rec.normal);
+                    let scattered = Ray{origin: rec.p, direction: reflected};
+                    return Some((scattered, Vec3{x: 1.0, y: 1.0, z: 1.0}))
+                }
+
+                let reflect_prob = schlick(cos_theta, etai_over_etat);
+                if rand::random::<f32>() < reflect_prob {
+                    let reflected = Vec3::reflect(unit_direction, rec.normal);
+                    let scattered = Ray{origin: rec.p, direction: reflected};
+                    return Some((scattered, Vec3{x: 1.0, y: 1.0, z: 1.0}))
+                }
+
+                let refracted = Vec3::refract(unit_direction, rec.normal, etai_over_etat);
+                let scattered = Ray{origin: rec.p, direction: refracted};
+                Some((scattered, Vec3{x: 1.0, y: 1.0, z: 1.0}))
+            }
         }
     }
 }
 
-fn main() {
-    // todo : voir const si on met en maj
-    let aspect_ratio: f32 = 16.0 / 9.0;
-    let sample_per_pixel = 5;
-    let image_width: i32 = 400;
-    let image_height: i32 = (image_width as f32 / aspect_ratio) as i32;
+fn random_scene() -> World {
+    let mut spheres = vec![];
+    spheres.push(Sphere{
+        center: Vec3{x: 0.0, y: - 1000.0, z: 0.0},
+        radius: 1000.0,
+        material: Material::Lambertian{albedo: Vec3{x: 0.5, y: 0.5, z: 0.5}}
+    });
 
+    for a in - 11..11 {
+        for b in -11..11 {
+            let choose_mat = rand::random::<f32>();
+            let center = Vec3{
+                x: a as f32 + 0.9 * rand::random::<f32>(),
+                y: 0.2,
+                z: b as f32 + 0.9 * rand::random::<f32>()
+            };
+
+            if (center - Vec3{x: 4.0, y: 0.2, z: 0.0}).length() > 0.9 {
+                if choose_mat < 0.8 {
+                    let albedo = Vec3::random(0.0, 1.0) * Vec3::random(0.0, 1.0);
+                    spheres.push(Sphere{
+                        center: center,
+                        radius: 0.2,
+                        material: Material::Lambertian{albedo: albedo}
+                    })
+                } else if choose_mat < 0.95 {
+                    let albedo = Vec3::random(0.0, 0.5);
+                    let fuzz = rand::random::<f32>() * 0.5;
+                    spheres.push(Sphere{
+                        center: center,
+                        radius: 0.2,
+                        material: Material::Metal{albedo: albedo, fuzz: fuzz}
+                    })
+                } else {
+                    spheres.push(Sphere{
+                        center: center,
+                        radius: 0.2,
+                        material: Material::Dielectric{ref_idx: 1.5}
+                    })
+                }
+            }
+        }
+    }
+
+    spheres.push(Sphere{
+        center: Vec3{x: 0.0, y: 1., z: 0.0},
+        radius: 1.0,
+        material: Material::Dielectric{ref_idx: 1.5}
+    });
+    spheres.push(Sphere{
+        center: Vec3{x: - 4.0, y: 1.0, z: 0.0},
+        radius: 1.0,
+        material: Material::Lambertian{albedo: Vec3{x: 0.4, y: 0.2, z: 0.1}}
+    });
+    spheres.push(Sphere{
+        center: Vec3{x: 4.0, y: 1.0, z: 0.0},
+        radius: 1.0,
+        material: Material::Metal{albedo: Vec3{x: 0.7, y: 0.6, z: 0.4}, fuzz: 0.0}
+    });
+
+    World{objects: spheres}
+}
+
+fn main() {
+    let now = SystemTime::now();
+
+    // todo : voir const si on met en maj
+    // todo voir trait object pas juste sphere
+    let aspect_ratio: f32 = 3.0 / 2.0;
+    let sample_per_pixel = 10;
+    let image_width: i32 = 300;
+    let image_height: i32 = (image_width as f32 / aspect_ratio) as i32;
+    let max_depth = 50;
 
     println!("P3");
     println!("{:?} {:?}", image_width, image_height);
     println!("{:?}", 255);
 
-    let camera = Camera::new(aspect_ratio);
-    let max_depth = 50;
-    // let spheres = vec![
-    //     Sphere{center: Vec3{x: 0.0, y: 0.0, z: - 1.0}, radius: 0.5},
-    //     Sphere{center: Vec3{x: 0.0, y: - 100.5, z: - 1.0}, radius: 100.0}
-    // ];
+    let lookfrom = Vec3{x: 13.0, y: 2.0, z: 3.0};
+    let lookat = Vec3{x: 0.0, y: 0.0, z: 0.0};
+    let vup = Vec3{x: 0.0, y: 1.0, z: 0.0};
+    let dist_to_focus = 10.0;
+    let aperture = 0.1;
+    let camera = Camera::new(
+        lookfrom,
+        lookat,
+        vup,
+        20.0,
+        aspect_ratio,
+        aperture,
+        dist_to_focus
+     );
 
-    let spheres = vec![
-        Sphere{
-            center: Vec3{x: 0.0, y: - 100.5, z: - 1.0},
-            radius: 100.0,
-            material: Material::Lambertian{albedo: Vec3{x: 0.8, y: 0.8, z: 0.0}}
-        },
-        Sphere{
-            center: Vec3{x: 0.0, y: 0.0, z: - 1.0},
-            radius: 0.5,
-            material: Material::Lambertian{albedo: Vec3{x: 0.7, y: 0.3, z: 0.3}}
-        },
-        Sphere{
-            center: Vec3{x: - 1.0, y: 0.0, z: - 1.0},
-            radius: 0.5,
-            material: Material::Metal{albedo: Vec3{x: 0.8, y: 0.8, z: 0.8}}
-        },
-        Sphere{
-            center: Vec3{x: 1.0, y: 0.0, z: - 1.0},
-            radius: 0.5,
-            material: Material::Metal{albedo: Vec3{x: 0.8, y: 0.6, z: 0.2}}
-        },
-    ];
-
-    let world = World{objects: spheres};
+    let world = random_scene();
     let mut nb_ray = &mut 0;
     for height in (0..image_height).rev() {
         // eprintln!("{:?}", height);
@@ -359,14 +480,5 @@ fn main() {
             pixel_color.write_color(sample_per_pixel);
         }
     }
+    eprintln!("{:?}", now.elapsed());
 }
-
-// fn main() {
-//     let a = rand::random::<f32>;
-//     println!("{:?}", a);
-//     // let mut a = Vec3{x: 1.0, y: 2.0, z: 3.0};
-//     // a /= 10.0;
-//     // println!("{:?}", a);
-//     // println!("{:?}", a.unit_vector());
-//     // println!("{:?}", a);
-// }
