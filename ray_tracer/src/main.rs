@@ -1,5 +1,6 @@
 use rand::Rng;
 use std::time::SystemTime;
+use rayon::prelude::*;
 
 
 // #[derive(Debug, Copy, Clone)]
@@ -161,15 +162,16 @@ impl std::ops::Neg for Vec3 {
 }
 
 // todo : implement sur ray ?
-fn ray_color(r: &Ray, world: &World, depth: i32, nb_ray: &mut i32) -> Vec3 {
-    *nb_ray += 1;
+fn ray_color(r: &Ray, world: &World, depth: i32) -> Vec3 {
+     // param : nb_ray: &mut i32
+    // *nb_ray += 1;
     if depth <= 0 {
         return Vec3{x: 0.0, y: 0.0, z: 0.0}
     }
 
     if let Some(ray_hitten) = world.hit(r, 0.001, 1000000.0) {
         if let Some((scattered, attenuation)) = ray_hitten.material.scatter(r, &ray_hitten) {
-            return ray_color(&scattered, world, depth - 1, nb_ray) * attenuation
+            return ray_color(&scattered, world, depth - 1) * attenuation
         }
         return Vec3{x: 0.0, y: 0.0, z: 0.0}
     }
@@ -436,8 +438,8 @@ fn main() {
     // todo : voir const si on met en maj
     // todo voir trait object pas juste sphere
     let aspect_ratio: f32 = 3.0 / 2.0;
-    let sample_per_pixel = 10;
-    let image_width: i32 = 300;
+    let sample_per_pixel = 100;
+    let image_width: i32 = 400;
     let image_height: i32 = (image_width as f32 / aspect_ratio) as i32;
     let max_depth = 50;
 
@@ -462,23 +464,51 @@ fn main() {
 
     let world = random_scene();
     let mut nb_ray = &mut 0;
+
     for height in (0..image_height).rev() {
         // eprintln!("{:?}", height);
-        eprintln!("{:?}", nb_ray);
         for width in 0..image_width {
             let mut pixel_color = Vec3{x: 0.0, y: 0.0, z: 0.0};
             for _ in 0..sample_per_pixel {
-
                 let u: f32 = (width as f32 + rand::random::<f32>()) / (image_width as f32 - 1.);
                 let v: f32 = (height as f32 + rand::random::<f32>()) / (image_height as f32 - 1.);
-
                 let r: Ray = camera.get_ray(u, v);
-
-                pixel_color += ray_color(&r, &world, max_depth, nb_ray);
+                pixel_color += ray_color(&r, &world, max_depth);
             }
-
             pixel_color.write_color(sample_per_pixel);
         }
     }
+
+
+    // let v: Vec<Vec<Vec3>> = (0..image_height)
+    //     .into_par_iter()
+    //     .rev()
+    //     .map(|height| (0..image_width)
+    //     .map(|width| {
+    //         let mut pixel_color = Vec3{x: 0.0, y: 0.0, z: 0.0};
+    //         for _ in 0..sample_per_pixel {
+    //             let u: f32 = (width as f32 + rand::random::<f32>()) / (image_width as f32 - 1.);
+    //             let v: f32 = (height as f32 + rand::random::<f32>()) / (image_height as f32 - 1.);
+    //             let r: Ray = camera.get_ray(u, v);
+    //             pixel_color += ray_color(&r, &world, max_depth);
+    //         }
+    //         pixel_color
+    //     })
+    //     .collect())
+    //     .collect();
+    // write_image(v, sample_per_pixel);
+
     eprintln!("{:?}", now.elapsed());
+}
+
+fn write_image(image: Vec<Vec<Vec3>>, sample_per_pixel: i32) {
+    for col in image {
+        for mut pixel in col {
+            pixel /= sample_per_pixel as f32;
+            let ir = (256.0 * clamp(pixel.x.sqrt(), 0.0, 0.999)) as i32;
+            let ig = (256.0 * clamp(pixel.y.sqrt(), 0.0, 0.999)) as i32;
+            let ib = (256.0 * clamp(pixel.z.sqrt(), 0.0, 0.999)) as i32;
+            println!("{:?} {:?} {:?}", ir, ig, ib);
+        }
+    }
 }
