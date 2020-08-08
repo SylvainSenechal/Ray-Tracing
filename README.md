@@ -1,14 +1,25 @@
 # Ray-Tracing
 This repo contains my Rust & Javascript implementations of [_Ray Tracing in One Weekend_](https://raytracing.github.io/books/RayTracingInOneWeekend.html) as well as benchmarks
 
-The javascript version is available live on ![my website](https://sylvainsenechal.github.io/Ray-Tracing/javascriptVersion/index.html).
+The javascript version is available live on [my website](https://sylvainsenechal.github.io/Ray-Tracing/javascriptVersion/index.html).
 
 Crates : Rand & Rayon for multithreading
 
 Rust project is build with --release flag on
 
+# Testing
+## Javascript version
+The javascript version is available live on ![my website](https://sylvainsenechal.github.io/Ray-Tracing/javascriptVersion/index.html).
+
+## Rust version
+Install Rust
+Build with ```shell cargo build --release```
+
+Run with ```./target/release/ray_tracer > image.ppm```
+Crates used : Rand & Rayon for multithreading
+
 # Visual Results
-Rendered in 292s at 1200 width, 800 height, pixels sampled 500 times, ray bouncing max depth at 50
+Rendered in 292s with rust (multi threaded). Image = (1200 width, 800 height), pixels sampled 500 times, ray bouncing max depth at 50
 ![GitHub Logo](/benchmarks/1200x500x50RustMulti.png)
 
 # Benchmarks
@@ -18,7 +29,7 @@ Results obtained on a Ryzen 2600
 
 Run number | Javascript | Rust | Rust multi threaded | Multi threading speedup | Rust multi threaded VS Javascript speedup
 -|-|-|-|-|-
-1 | 236 | 40.20s | 6.68s
+1 | 236s | 40.20s | 6.68s
 2 | todo | 39.58s | 6.85s
 3 | todo | 40.57s | 6.75s
 **Average** |236s | 40.12s | 6.76s | x5.935 | x35
