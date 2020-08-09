@@ -3,16 +3,17 @@ This repo contains my Rust & Javascript implementations of [_Ray Tracing in One 
 
 # Testing
 
-## Javascript version
-The javascript version is available live on ![my website](https://sylvainsenechal.github.io/Ray-Tracing/javascriptVersion/index.html).
-
 ## Rust version
 Install Rust
+
 Build with ```shell cargo build --release```
 
 Run with ```./target/release/ray_tracer > image.ppm```
 
 Crates used : Rand & Rayon for multithreading
+
+## Javascript version
+The javascript version is available live on [my website](https://sylvainsenechal.github.io/Ray-Tracing/javascriptVersion/index.html).
 
 # Visual Results
 Rendered in 292s with rust (multi threaded). Image = (1200 width, 800 height), pixels sampled 500 times, ray bouncing max depth at 50
