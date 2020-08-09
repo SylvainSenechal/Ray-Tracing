@@ -1,13 +1,8 @@
 # Ray-Tracing
 This repo contains my Rust & Javascript implementations of [_Ray Tracing in One Weekend_](https://raytracing.github.io/books/RayTracingInOneWeekend.html) as well as benchmarks
 
-The javascript version is available live on [my website](https://sylvainsenechal.github.io/Ray-Tracing/javascriptVersion/index.html).
-
-Crates : Rand & Rayon for multithreading
-
-Rust project is build with --release flag on
-
 # Testing
+
 ## Javascript version
 The javascript version is available live on ![my website](https://sylvainsenechal.github.io/Ray-Tracing/javascriptVersion/index.html).
 
@@ -16,6 +11,7 @@ Install Rust
 Build with ```shell cargo build --release```
 
 Run with ```./target/release/ray_tracer > image.ppm```
+
 Crates used : Rand & Rayon for multithreading
 
 # Visual Results
