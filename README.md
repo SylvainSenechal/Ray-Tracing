@@ -6,7 +6,7 @@ This repo contains my Rust & Javascript implementations of [_Ray Tracing in One 
 ## Rust version
 Install Rust
 
-Build with ```shell cargo build --release```
+Build with ```cargo build --release```
 
 Run with ```./target/release/ray_tracer > image.ppm```
 
